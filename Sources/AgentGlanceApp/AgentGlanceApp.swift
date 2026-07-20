@@ -11,18 +11,42 @@ struct AgentGlanceApplication: App {
         Settings {
             AgentGlanceSettingsView(store: appDelegate.store)
         }
+        // Screens without a hardware notch host the session UI as a normal
+        // status item instead of a floating panel; `PresentationCoordinator`
+        // toggles this binding as the target screen changes.
+        MenuBarExtra(
+            isInserted: Binding(
+                get: { appDelegate.showStatusItem },
+                set: { appDelegate.showStatusItem = $0 }
+            )
+        ) {
+            if let store = appDelegate.store {
+                StatusItemMenuView(store: store)
+            }
+        } label: {
+            if let store = appDelegate.store {
+                StatusItemIconView(store: store)
+            }
+        }
+        .menuBarExtraStyle(.window)
     }
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
-    private var panelController: NotchPanelController?
+final class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+    private var presentationCoordinator: PresentationCoordinator?
     private(set) var store: StateStore?
     private var observationScheduler: ObservationScheduler?
     private var focusAcknowledgmentObserver: FocusAcknowledgmentObserver?
+    @Published var showStatusItem = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         guard terminateBecauseAnotherInstanceRuns() == false else { return }
+        // The notch silhouette is always solid black regardless of the
+        // system's light/dark setting; every native surface the app owns —
+        // the panel's right-click menu, the Settings window — must match
+        // instead of following the system appearance on its own.
+        NSApp.appearance = NSAppearance(named: .darkAqua)
         NSApp.setActivationPolicy(.accessory)
         let stateDirectory = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".agentglance/state", isDirectory: true)
@@ -41,6 +65,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         UserDefaults.standard.register(defaults: [
             "attentionSoundEnabled": true,
             "turnCompleteSoundEnabled": true,
+            // -1 means "no display chosen" — currentLayout() falls back to
+            // whichever screen has keyboard focus, today's original default.
+            "preferredDisplayID": -1,
+            "preferredDisplayName": "",
         ])
         store.onAttentionRaised = { _ in
             guard UserDefaults.standard.bool(forKey: "attentionSoundEnabled") else { return }
@@ -58,8 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             store.stopObserving()
             NSLog("AgentGlance failed to start state observation: %@", String(describing: error))
         }
-        panelController = NotchPanelController(store: store)
-        panelController?.show()
+        presentationCoordinator = PresentationCoordinator(store: store) { [weak self] shouldShow in
+            self?.showStatusItem = shouldShow
+        }
         let scheduler = ObservationScheduler(repository: repository)
         observationScheduler = scheduler
         scheduler.start()

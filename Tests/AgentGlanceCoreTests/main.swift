@@ -1255,10 +1255,10 @@ func testNotchLayoutExtendsFromLeftSideOfHardwareNotch() throws {
         rightNotchEdgeX: 846
     )
 
-    try expect(layout.width, equals: 432, "maximum panel width")
+    try expect(layout.width, equals: 504, "maximum panel width, plus shadow margin on both sides")
     try expect(layout.height, equals: 38, "collapsed panel height")
-    try expect(layout.expandedHeight, equals: 398, "expanded panel height")
-    try expect(layout.originX, equals: 484, "panel x")
+    try expect(layout.expandedHeight, equals: 434, "expanded panel height, plus bottom shadow margin")
+    try expect(layout.originX, equals: 448, "panel x, shifted left to keep the silhouette centered")
     try expect(layout.originY, equals: 944, "panel y")
     try expect(layout.leftContentWidth, equals: 182, "maximum left wing width")
     try expect(layout.rightContentWidth, equals: 70, "maximum right wing width")
@@ -1266,6 +1266,46 @@ func testNotchLayoutExtendsFromLeftSideOfHardwareNotch() throws {
     try expect(NotchLayout.wingWidth(activeToolCount: 1), equals: 70, "one-tool wing")
     try expect(NotchLayout.wingWidth(activeToolCount: 2), equals: 126, "two-tool wing")
     try expect(NotchLayout.wingWidth(activeToolCount: 3), equals: 182, "three-tool wing")
+}
+
+func testDisplayPreferenceDefaultsToFirstConnectedScreenWhenNoneChosen() throws {
+    let builtIn = DisplayDescriptor(id: 1, name: "Built-in Retina Display")
+    let external = DisplayDescriptor(id: 2, name: "LG UltraFine")
+
+    let resolved = DisplayPreference.resolve(preferred: nil, connected: [builtIn, external])
+
+    try expect(resolved, equals: builtIn, "no saved preference keeps today's default screen")
+}
+
+func testDisplayPreferenceMatchesChosenScreenByID() throws {
+    let builtIn = DisplayDescriptor(id: 1, name: "Built-in Retina Display")
+    let external = DisplayDescriptor(id: 2, name: "LG UltraFine")
+
+    let resolved = DisplayPreference.resolve(preferred: external, connected: [builtIn, external])
+
+    try expect(resolved, equals: external, "the chosen display is honored when still connected")
+}
+
+func testDisplayPreferenceFallsBackToNameWhenIDChangedAfterReconnect() throws {
+    let builtIn = DisplayDescriptor(id: 1, name: "Built-in Retina Display")
+    let chosen = DisplayDescriptor(id: 2, name: "LG UltraFine")
+    // Reconnecting the same physical monitor can hand it a new
+    // CGDirectDisplayID; the name is the next best signal that it's the
+    // same screen the user picked.
+    let reconnected = DisplayDescriptor(id: 99, name: "LG UltraFine")
+
+    let resolved = DisplayPreference.resolve(preferred: chosen, connected: [builtIn, reconnected])
+
+    try expect(resolved, equals: reconnected, "a name match survives an id change across reconnects")
+}
+
+func testDisplayPreferenceFallsBackToFirstConnectedWhenChosenScreenIsGone() throws {
+    let builtIn = DisplayDescriptor(id: 1, name: "Built-in Retina Display")
+    let chosen = DisplayDescriptor(id: 2, name: "LG UltraFine")
+
+    let resolved = DisplayPreference.resolve(preferred: chosen, connected: [builtIn])
+
+    try expect(resolved, equals: builtIn, "an unplugged display falls back to the first connected screen")
 }
 
 func testOpenCodePluginWritesSessionState() throws {
@@ -3083,6 +3123,19 @@ let tests: [(String, () throws -> Void)] = [
     ("attention acknowledgments silence visited sessions", testAttentionAcknowledgmentsSilenceVisitedSessionsUntilNewActivity),
     ("git workspace inspector resolves branch names", testGitWorkspaceInspectorResolvesBranchNames),
     ("notch layout extends from left side of hardware notch", testNotchLayoutExtendsFromLeftSideOfHardwareNotch),
+    (
+        "display preference defaults to first connected screen when none chosen",
+        testDisplayPreferenceDefaultsToFirstConnectedScreenWhenNoneChosen
+    ),
+    ("display preference matches chosen screen by id", testDisplayPreferenceMatchesChosenScreenByID),
+    (
+        "display preference falls back to name when id changed after reconnect",
+        testDisplayPreferenceFallsBackToNameWhenIDChangedAfterReconnect
+    ),
+    (
+        "display preference falls back to first connected when chosen screen is gone",
+        testDisplayPreferenceFallsBackToFirstConnectedWhenChosenScreenIsGone
+    ),
     ("opencode plugin writes session state", testOpenCodePluginWritesSessionState),
     ("opencode plugin maps lifecycle events", testOpenCodePluginMapsLifecycleEvents),
     ("pi extension writes session state", testPiExtensionWritesSessionState),

@@ -3,6 +3,25 @@ import SwiftUI
 
 import AgentGlanceCore
 
+extension Notification.Name {
+    /// Posted by Settings when the user picks a different display to host
+    /// the notch on, so the panel repositions without waiting for the next
+    /// screen-parameters change.
+    static let agentGlanceDisplayPreferenceChanged = Notification.Name("AgentGlanceDisplayPreferenceChanged")
+}
+
+/// `CGDirectDisplayID` isn't guaranteed stable across a monitor being
+/// unplugged and reconnected, but it's the closest thing AppKit exposes to a
+/// screen identity — paired with the name, `DisplayPreference` in
+/// AgentGlanceCore uses both to survive that case.
+enum DisplayIdentity {
+    static func id(for screen: NSScreen) -> Int {
+        let key = NSDeviceDescriptionKey("NSScreenNumber")
+        guard let number = screen.deviceDescription[key] as? NSNumber else { return 0 }
+        return number.intValue
+    }
+}
+
 final class NotchPanel: NSPanel {
     /// The panel must never steal keyboard focus from the frontmost app —
     /// except while the user edits a session name inline, when the rename
@@ -39,6 +58,7 @@ final class NotchPanelController {
     private var layout: NotchLayout
     private var hostingView: NotchHostingView<NotchWidgetView>?
     private var screenObserver: NSObjectProtocol?
+    private var displayPreferenceObserver: NSObjectProtocol?
 
     init(store: StateStore) {
         self.store = store
@@ -65,11 +85,14 @@ final class NotchPanelController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated {
-                guard let self else { return }
-                self.layout = Self.currentLayout()
-                self.applyLayout()
-            }
+            MainActor.assumeIsolated { self?.refreshLayout() }
+        }
+        displayPreferenceObserver = NotificationCenter.default.addObserver(
+            forName: .agentGlanceDisplayPreferenceChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.refreshLayout() }
         }
     }
 
@@ -77,14 +100,28 @@ final class NotchPanelController {
         if let screenObserver {
             NotificationCenter.default.removeObserver(screenObserver)
         }
+        if let displayPreferenceObserver {
+            NotificationCenter.default.removeObserver(displayPreferenceObserver)
+        }
+    }
+
+    private func refreshLayout() {
+        layout = Self.currentLayout()
+        applyLayout()
     }
 
     func show() {
         panel.orderFrontRegardless()
     }
 
+    /// Called when the target screen has no hardware notch and the status
+    /// item takes over — the panel stays alive (cheap) but off-screen.
+    func hide() {
+        panel.orderOut(nil)
+    }
+
     private static func currentLayout() -> NotchLayout {
-        let screen = NSScreen.main ?? NSScreen.screens.first
+        let screen = PreferredScreen.resolve() ?? NSScreen.screens.first
         return NotchLayout(
             screenMinX: screen?.frame.minX ?? 0,
             screenWidth: screen?.frame.width ?? 1_512,

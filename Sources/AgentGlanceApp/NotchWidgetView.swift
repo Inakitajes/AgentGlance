@@ -105,6 +105,8 @@ struct NotchWidgetView: View {
                     openMenuTrackingCount = max(0, openMenuTrackingCount - 1)
                     settleAfterDetachedInteraction()
                 }
+                // Hugs the bar's icons against their reserved wing edge so
+                // the silhouette stays molded into the hardware notch.
                 .padding(.leading, leftContentWidth - leftWidth)
                 .padding(.trailing, rightContentWidth - rightWidth)
             }
@@ -296,14 +298,18 @@ private struct ToolIndicator: View {
     }
 }
 
-private let sessionRowHeight: CGFloat = 46
+let sessionRowHeight: CGFloat = 46
 
 /// The classic braille dot-matrix spinner used across CLI tools (ora,
 /// Convoy's own progress indicator) — several dots lit per frame rather
 /// than one pixel chasing itself. Monochrome by design: red stays the only
 /// color with meaning, reserved for needsAttention.
-private struct WorkingPixelSpinner: View {
+struct WorkingPixelSpinner: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    // The notch pill is always black, so the spinner defaults to white; the
+    // status item lives in the real menu bar, which tracks the system's own
+    // light/dark appearance, so it passes `.primary` instead.
+    var color: Color = .white
     private static let stepInterval: TimeInterval = 0.08
     private static let frames: [Character] = Array("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
 
@@ -321,7 +327,7 @@ private struct WorkingPixelSpinner: View {
     private func frame(_ character: Character) -> some View {
         Text(String(character))
             .font(.system(size: 13, weight: .medium, design: .monospaced))
-            .foregroundStyle(.white)
+            .foregroundStyle(color)
             .frame(width: 10, height: 10)
     }
 }
@@ -330,7 +336,7 @@ private struct WorkingPixelSpinner: View {
 /// a neutral dim white for idle — the resting state carries no color of its
 /// own, only reduced brightness. `.working` rows render a spinner instead
 /// (see `mainRow`) so this branch is unreachable for that case.
-private func semaphoreColor(for status: SessionStatus) -> Color {
+func semaphoreColor(for status: SessionStatus) -> Color {
     switch status {
     case .working: .white
     case .idle: .white.opacity(0.3)
@@ -343,7 +349,7 @@ private func semaphoreColor(for status: SessionStatus) -> Color {
 
 /// SVG brand marks bundled in AgentGlanceCore; NSImage renders SVG natively
 /// on macOS 11+ so no rasterized assets are needed.
-private enum AgentIcons {
+enum AgentIcons {
     static let byTool: [AgentTool: NSImage] = Dictionary(
         uniqueKeysWithValues: AgentTool.allCases.compactMap { tool in
             NSImage(contentsOf: BundledResources.iconURL(for: tool)).map { (tool, $0) }
@@ -351,7 +357,7 @@ private enum AgentIcons {
     )
 }
 
-private struct AgentIconView: View {
+struct AgentIconView: View {
     let tool: AgentTool
 
     var body: some View {
@@ -374,7 +380,7 @@ private struct AgentIconView: View {
 
 // MARK: - Session menu
 
-private struct SessionMenuCard: View {
+struct SessionMenuCard: View {
     let tool: AgentTool
     let sessions: [AgentSession]
     let dismiss: () -> Void
@@ -521,7 +527,7 @@ private struct SessionMenuCard: View {
     }
 }
 
-private struct SessionRow: View {
+struct SessionRow: View {
     let session: AgentSession
     let title: String
     let renamePrefill: String
@@ -561,8 +567,15 @@ private struct SessionRow: View {
             // the catcher passes every other event through.
             .overlay(RightClickCatcher(onRightClick: toggleActions))
             if isActionsExpanded {
+                // A hairline separates the session header from its actions —
+                // without it the two read as one undifferentiated block.
+                Rectangle()
+                    .fill(.white.opacity(0.08))
+                    .frame(height: 1)
+                    .padding(.horizontal, 14)
                 actionArea
                     .padding(.horizontal, 6)
+                    .padding(.top, 6)
                     .padding(.bottom, 6)
                     .transition(.opacity)
             }
@@ -663,7 +676,7 @@ private struct SessionRow: View {
     private var actionArea: some View {
         switch mode {
         case .menu:
-            VStack(spacing: 1) {
+            VStack(spacing: 2) {
                 ActionListRow(label: "Rename Session", systemImage: "pencil") {
                     beginRename()
                 }
@@ -680,7 +693,7 @@ private struct SessionRow: View {
                 }
                 ActionListRow(
                     label: "Kill Session",
-                    systemImage: "xmark.octagon",
+                    systemImage: "trash",
                     isDestructive: true
                 ) {
                     mode = .confirmingKill
@@ -713,7 +726,7 @@ private struct SessionRow: View {
                 Spacer(minLength: 0)
                 ActionListRow(
                     label: "Kill",
-                    systemImage: "xmark.octagon",
+                    systemImage: "trash",
                     isDestructive: true,
                     fillsWidth: false
                 ) {
@@ -774,7 +787,7 @@ private struct SessionRow: View {
 /// The visible route into the native Settings window, living in the menu
 /// header; the silhouette's right-click menu stays as the fallback for when
 /// no sessions exist and no menu can open.
-private struct SettingsGearButton: View {
+struct SettingsGearButton: View {
     let action: () -> Void
     @State private var isHovered = false
 
@@ -784,6 +797,7 @@ private struct SettingsGearButton: View {
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(.white.opacity(isHovered ? 0.75 : 0.35))
                 .frame(width: 18, height: 18)
+                .background(Circle().fill(.white.opacity(isHovered ? 0.1 : 0)))
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
@@ -794,7 +808,7 @@ private struct SettingsGearButton: View {
 
 /// One entry of the inline action list: icon, label, hover highlight — the
 /// look of a menu item, rendered inside the row instead of a floating menu.
-private struct ActionListRow: View {
+struct ActionListRow: View {
     let label: String
     let systemImage: String
     var isDestructive = false
@@ -806,10 +820,14 @@ private struct ActionListRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
+            HStack(spacing: 8) {
+                // A fixed icon box, not just a fixed width, keeps every glyph
+                // — thin outlines and bold fills alike — the same visual
+                // weight instead of rendering at each symbol's own metrics.
                 Image(systemName: systemImage)
-                    .font(.system(size: 11, weight: .semibold))
-                    .frame(width: 15)
+                    .font(.system(size: 11, weight: .medium))
+                    .symbolRenderingMode(.monochrome)
+                    .frame(width: 15, height: 15)
                 Text(label)
                     .font(.system(size: 11.5, weight: .medium))
                 if fillsWidth {
@@ -822,7 +840,7 @@ private struct ActionListRow: View {
                     : Color.white.opacity(isHovered ? 0.95 : 0.8)
             )
             .padding(.horizontal, 10)
-            .frame(height: 30)
+            .frame(height: 28)
             .frame(maxWidth: fillsWidth ? .infinity : nil, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -846,7 +864,7 @@ private struct ActionListRow: View {
 /// Claims right and control clicks for the inline action toggle and lets
 /// every other event — left clicks, hover, scroll — fall through to the
 /// SwiftUI row underneath.
-private struct RightClickCatcher: NSViewRepresentable {
+struct RightClickCatcher: NSViewRepresentable {
     let onRightClick: () -> Void
 
     func makeNSView(context: Context) -> RightClickForwardingView {
@@ -860,7 +878,7 @@ private struct RightClickCatcher: NSViewRepresentable {
     }
 }
 
-private final class RightClickForwardingView: NSView {
+final class RightClickForwardingView: NSView {
     var onRightClick: (() -> Void)?
 
     override func rightMouseDown(with event: NSEvent) {
