@@ -111,7 +111,6 @@ async function updateState(client, event, directory) {
     "permission.replied": ["working", null],
     "session.idle": ["idle", null],
     "session.deleted": ["ended", null],
-    "message.updated": ["working", null],
   };
   // session.status carries its own idle signal (properties.status.type ===
   // "idle") alongside the dedicated session.idle event below — OpenCode
@@ -119,6 +118,14 @@ async function updateState(client, event, directory) {
   // only busy/retry as meaningful and falling through to transitions[] (which
   // has no "session.status" key) silently dropped every idle transition,
   // leaving the spinner stuck on "working" forever.
+  //
+  // message.updated used to map to "working" unconditionally too, on the
+  // assumption it only fires mid-turn. OpenCode 1.18 also emits a trailing
+  // message.updated AFTER session.status has already gone idle (usage/cost
+  // finalization) — with no further event ever arriving to correct it, that
+  // permanently reverted a finished session back to "working" (observed
+  // 2026-07-20). session.status busy already covers the "still working"
+  // signal, so message.updated is redundant as a status source now.
   const statusTransition = event.type === "session.status"
     ? ["busy", "retry"].includes(event.properties.status?.type)
       ? ["working", null]
